@@ -25,7 +25,7 @@ cat $result |tr 'A-Z' 'a-z' |                                            #大写
                             awk '{if($2!="") print $2}'|             #去除长度和空行
                             sort|                                                        #根据首字母排序
                             uniq -c|                                                  #统计单词频率
-                            grep -v -w [1-9]|                                  #删除出现频率小于5次的单词
+                            grep -v -w [1-9]|                                  #删除出现频率小于9次的单词
                             sort -r -n|                                               #根据词频排序
                             awk '{print $2" "$1}'>$result        #输出单词+词频
 
