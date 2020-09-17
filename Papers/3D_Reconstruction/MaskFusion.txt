@@ -1,0 +1,727 @@
+MaskFusion: Real-Time Recognition, Tracking and Reconstruction
+of Multiple Moving Objects
+Martin Runz ¨ * Maud Buffier† Lourdes Agapito‡
+Department of Computer Science
+University College London, UK
+(a) Frame 400 (b) Frame 700 (c) Frame 900
+Figure 1: A series of 3 frames illustrating the recognition, tracking and mapping capabilities of MaskFusion. The first row
+highlights the system’s output: A reconstruction of the background (white), keyboard (orange), clock (yellow), sports ball (blue),
+teddy-bear (green) and spray-bottle (brown). While the camera was in motion during the whole sequence, the bottle and the teddy
+started moving from frame 500 and 690 onwards, respectively. Note that MaskFusion explicitly avoided to reconstruct geometry
+related to the person holding the objects. The second row shows the input RGBD frames and semantic masks produced by the
+segmentation neural network as an overlay.
+ABSTRACT
+We present MaskFusion, a real-time, object-aware, semantic and
+dynamic RGB-D SLAM system that goes beyond traditional systems
+which output a purely geometric map of a static scene. MaskFusion
+recognizes, segments and assigns semantic class labels to different
+objects in the scene, while tracking and reconstructing them even
+when they move independently from the camera. As an RGB-D
+camera scans a cluttered scene, image-based instance-level semantic segmentation creates semantic object masks that enable realtime object recognition and the creation of an object-level representation for the world map. Unlike previous recognition-based
+SLAM systems, MaskFusion does not require known models of the
+objects it can recognize, and can deal with multiple independent
+motions. MaskFusion takes full advantage of using instance-level
+semantic segmentation to enable semantic labels to be fused into
+an object-aware map, unlike recent semantics enabled SLAM systems that perform voxel-level semantic segmentation. We show
+augmented-reality applications that demonstrate the unique features
+*e-mail: martin.runz.15@ucl.ac.uk
+†e-mail: maud.buffier@gmail.com
+‡e-mail:l.agapito@ucl.ac.uk
+§http://visual.cs.ucl.ac.uk/pubs/maskfusion/
+of the map output by MaskFusion: instance-aware, semantic and dynamic. Code will be made available‡.
+Index Terms: Visual SLAM—SLAM—Visualization—Tracking;
+Mapping—Fusion—RGBD—Multi-object Recognition—Context—
+Semantic—Detection Real-time—Augmented-Reality—Robotics
+1 INTRODUCTION
+Perceiving the world around us in 3D from image sequences acquired from a moving camera is a fundamental task in fields such
+as computer vision, robotics, human-computer and human-robot interaction. Visual SLAM (Simultaneous Localisation and Mapping)
+systems have focused, for decades now, on jointly solving the tasks
+of tracking the position of a camera as it explores unknown locations
+and creating a 3D map of the environment. Their real-time capability has turned SLAM methods into the cornerstone of ambitious
+applications such as autonomous driving, robot navigation and also
+augmented/virtual reality. Research in Visual SLAM has progressed
+at a fast pace, moving from early works that reconstructed sparse
+maps with just a few tens or hundreds of features using filtering
+techniques [11], to parallel tracking and mapping approaches that
+could take advantage of computationally expensive batch optimisation techniques for the mapping thread to produce accurate maps
+with thousands of landmarks [25, 30], to contemporary methods
+that allow instead to reconstruct completely dense maps of the environment [33, 34, 50]. The impact on augmented reality of this
+progression towards dense and robust real-time mapping has been
+arXiv:1804.09194v2 [cs.CV] 22 Oct 2018
+immense with many SLAM enabled augmented reality applications
+making their way into consumer products and mobile phone apps.
+Despite these advances, there are still two areas in which SLAM
+methods and their application to augmented reality are still very
+much in their infancy.
+(a) Most SLAM methods rely on the assumption that the environment is mostly static and moving objects are, at best, detected
+as outliers and ignored. Although some first steps have been
+taken towards non-rigid and dynamic scene reconstruction,
+with exciting results in reconstruction of a single non-rigid
+object [12, 20, 32, 53] or multiple moving rigid objects [39],
+designing an accurate and robust SLAM system that can deal
+with arbitrary dynamic and non-rigid scenes remains an open
+challenge.
+(b) The output provided by the majority of SLAM systems is
+a purely geometric map of the environment. The addition
+of semantic information is relatively recent [6, 8, 28, 40, 44]
+and is mostly limited to the recognition of a small number of
+known object instances for which a 3D model is available in
+advance [6, 8, 40, 46] or to classify each 3D map point into a
+fixed set of semantic categories without differentiating object
+instances [28, 44].
+Contribution: the novelty of our approach is to make advances
+towards addressing both of these limitations within the same system.
+MaskFusion is a real-time capable SLAM system that can represent
+scenes at the level of objects. It can recognise, detect, track and reconstruct multiple moving rigid objects while precisely segmenting
+each instance and assigning it a semantic label. We take advantage of combining the outputs of: (i) Mask-RCNN [15], a powerful
+image-based instance level segmentation algorithm that can predict
+object category labels for 80 object classes, and (ii) a geometrybased segmentation algorithm, that generates an object edge map
+from depth and surface normal cues; to increase the accuracy of the
+object boundaries in the object masks.
+Our dynamic SLAM framework takes these accurate object masks
+as input to track and fuse multiple moving objects (as well as the
+static background) while propagating the semantic image labels
+into temporally-consistent 3D map labels. The main advantage of
+using instance-aware semantic segmentation over standard pixellevel semantic segmentation (such as most previous semantic SLAM
+systems [6,8,28,40,44,46]) is that it provides accurate object masks
+and the ability to segment different object instances that belong to
+the same object category instead of treating them as a single blob.
+The additional advantage of MaskFusion over previous semantic
+SLAM systems [6, 8, 28, 40, 44, 46] is that it does not require the
+scene to be static and so can detect, track and map multiple independently moving objects. Maintaining an internal 3D representation of
+moving objects (instead of treating them as outliers) substantially
+improves the overall SLAM system by providing a richer map that
+includes not just the background but also the detailed geometry
+of the moving objects, and by improving object and camera pose
+prediction and estimation.
+On the other hand, the advantage of MaskFusion over previous
+dynamic SLAM systems [3, 39] is that it enhances the dynamic map
+with semantic information from a large number of object classes in
+real time. Not only can it detect individual objects (thanks to the
+use of Mask-RCNN [15]) and assign semantic labels to their corresponding 3D map points, but it can also accurately segment each
+individual object instance. Table 1 summarises our contributions in
+the context of other real-time semantic SLAM and dynamic SLAM
+systems.
+The result is a versatile system that can represent a dynamic scene
+at the level of objects and their semantic labels, which has numerous
+applications in areas such as robotics and augmented reality. We
+demonstrate how the labels of objects can be used for different
+purposes. For instance, we show that often, being able to detect and
+segment people allows us to be aware of their presence, ignore those
+pixels and focus instead on the objects that they are manipulating.
+We show how this can be useful in object manipulation tasks, as
+it can improve object tracking even when objects are moved and
+occluded by a human hand.
+2 RELATED WORK
+The field of Visual SLAM has a long history of offering solutions to
+the problem of jointly tracking the pose of a moving camera (see [14]
+for a recent survey) while reconstructing a map of the environment.
+The advent of inexpensive, consumer-grade RGB-D cameras – such
+as the Microsoft Kinect – stimulated further research, and enabled
+the leap to dense real-time methods [23, 24, 33].
+Dense RGB-D SLAM: Resulting methods are capable of accurately mapping indoor environments and gained popularity in augmented reality and robotics. KinectFusion [33] proved that a truncated signed distance function (TSDF) based map representation
+can achieve fast and robust mapping and tracking in small environments. Subsequent work [38, 51] showed that the same principles
+are applicable to large scale environments by choosing appropriate
+data structures.
+Surface elements (surfels) have a long history in computer graphics [35] and have found many applications in computer vision [5,49].
+More recently, surfel-based map representations were also introduced [18, 23] to the domain of RGBD-SLAM. A map of surfels
+is similar to a point cloud with the difference that each element
+encodes local surface properties – typically a radius and normal –
+in addition to its location. In contrast to a TSDF-based map, surfel
+clouds are naturally memory efficient and avoid the overhead due
+to switching representations between mapping and tracking that is
+typical of TSDF-based fusion methods. Whelan et al. [50] presented
+a surfel-based RGBD-SLAM system for large environments with
+local and global loop-closure.
+Scene segmentation: The computer graphics [7] and vision [9, 17,
+22,28,46] communities have devoted substantial effort to object and
+scene segmentation. Segmented data can broaden the functionality
+of visual tracking and mapping systems, for instance, by enabling
+robots to detect objects. Some methods have proposed to segment
+RGBD data based on geometric properties of surface normals [9,
+13, 22, 45], mainly by assuming that objects are convex. While
+the clear strength of geometry-based segmentation systems is that
+they produce accurate object boundaries, their weakness is that they
+typically result in over-segmentations and they do not convey any
+semantic information.
+Semantic scene segmentation: Another line of work [2, 26, 52]
+aims at segmenting 3D scenes semantically, using Markov Random
+Fields (MRFs). These methods require labelled 3D data, however,
+which in contrast to labelled 2D image data is not readily available. This is exemplified by the fact that all three works involved
+manual annotation of training data. Datasets containing isolated
+RGBD frames, such as NYUv2 [31], are not applicable here and it
+requires significant effort to build consistent reconstructed datasets
+for segmentation, as recently shown by Dai et al. [10].
+Semantic SLAM: Motivated by the success of convolutional neural
+networks [15, 36, 37], Tateno et al. [44] and McCormac et al. [28]
+integrate deep neural networks in real-time SLAM systems. As inference is solely based on 2D information, the need for 3D annotated
+data is circumvented. The resulting systems offer strategies to fuse
+labelled image data into segmented 3D maps. Earlier work by Hermans et al. [19] implements a similar scheme, using a randomised
+decision forest classifier. However, since the systems are not considering object instances, tracking multiple models independently is
+unattainable.
+Dynamic SLAM: There are two main scenarios in dynamic SLAM:
+Method
+Modelfree
+Scene
+Segmentation Semantics
+Multiple
+moving
+objects
+NonRigid
+StaticFusion [41] X X
+2.5D is not
+enough [46] X X
+Slam++
+[40] X X
+CNNSLAM [44] X X X
+SemanticFusion [28] X X X
+Non-Rigid
+RGBD [53] X
+DynamicFusion [32] X X
+Fusion4D
+[12] X X
+CoFusion [39] X X X
+MaskFusion X X X X
+Table 1: Comparison of the properties of MaskFusion with respect
+to other real-time SLAM systems. In contrast to previous semantic
+SLAM systems [28, 40, 44, 46], MaskFusion is both dynamic (it
+reconstructs objects even when their motion is different from the
+camera) and segments object instances. Unlike dense non-rigid
+reconstruction systems [12, 32, 53], it can reconstruct the entire
+scene and adds semantic labels to different objects. Note that while
+Co-Fusion [39] could use semantic cues to segment the scene, in that
+case the system was not real-time – only the non-semantic version
+of Co-Fusion was real-time capable.
+non-rigid surface reconstruction and multibody formulations for
+independently moving rigid objects. In the first case, a deformable
+world is assumed [12, 32, 53] and as-rigid-as-possible registration
+is performed, while in the second, rigid object instances are identified [40, 46] and tracked sparsely [48, 54] or densely [39]. Both
+categories use template- or descriptor-based formulations [40,46,53],
+which require pre-observing objects of interest, and template-free
+methods. In the case when the dynamic parts of the scene are not of
+interest, it is valuable to recognise them as outliers to avoid errors
+in the optimisation back-end. Methods for the explicit detection of
+dynamic regions for static fusion were proposed by Jaimez et al. [21]
+and Scona et al. [41].
+Table 1 provides an overview of related real-time capable methods comparing them under five important properties.
+Only two dynamic SLAM system, to the best of our knowledge,
+have previously attempted incorporates semantic knowledge, but
+both fall short of the functionality of MaskFusion. Co-Fusion [39]
+demonstrated the ability to track, segment and reconstruct objects
+based on their semantic labels, but the overall system was not realtime capable and limited functionality was shown. DynSLAM [3]
+developed a mapping system for autonomous driving applications
+capable of separately reconstructing both the static environment and
+the moving vehicles. However, the overall system was not real-time
+(this is the reason it does not appear in Table 1) and vehicle was the
+only dynamic object-class it reconstructed, so its functionality was
+limited to road scenes.
+Pull Update Pull
+g Network Masking Network Masking Networ
+(a) Timing of asynchronous components: In this timeline, frame S and frame
+M are highlighted with thick borders, as the SLAM and masking threads
+are working on them respectively. C, the current frame (tail of queue Q f )
+is shown in blue, the head of the queue is shaded in green, and frames with
+available object masks are marked orange.
+New frame
+Tracking
+Segmentation
+Fusion
+Masking network
+SLAM-Thread Network Thread
+Pull frame
+Update
+frame
+(b) Dataflow in MaskFusion: Camera frames are added to a fixed length
+queue Q f . The SLAM system (green) operates on its head. The semantic
+masking DNN pulls input frames from the tail, and updates frames back to
+the queue as soon as results (semantic masks) are available.
+Figure 2: High-level overview of the SLAM back-end and masking
+network, and their interaction.
+3 SYSTEM OVERVIEW
+MaskFusion enables real-time dense dynamic RGBD SLAM at the
+level of objects. In essence, MaskFusion is a multi-model SLAM
+system that maintains a 3D representation for each object that it
+recognises in the scene (in addition to the background model). Each
+model is tracked and fused independently. Figure 2 illustrates its
+frame-to-frame operation. Each time a new frame is acquired by the
+camera, the following steps are performed:
+Tracking: The 3D geometry of each object is represented as a set
+of surfels. The six degree of freedom pose of each model is tracked
+by minimizing an energy that combines a geometric iterative closest
+point (ICP) error with a photometric cost based on brightness
+constancy between corresponding points in the current frame and
+the stored 3D model, aligned with the pose in the previous frame. In
+order to lower computational demand and increase robustness, only
+non-static objects are tracked separately. Two different strategies
+were tested to decide whether an object is static or not: one based on
+motion inconsistency, similar to [39], and another that treats objects
+which are being touched by a person as dynamic.
+Segmentation: MaskFusion combines two types of cues for
+segmentation: semantic and geometric cues. Mask-RCNN [15]
+is used to provide object masks with semantic labels. While
+this algorithm is impressive and provides good object masks, it
+suffers from two drawbacks. First, the algorithm does not run in
+real time and can only operate at a maximum of 5 Hz. Second,
+the object boundaries are not perfect – they tend to leak into the
+background. To overcome both of these limitations, we run a
+geometric segmentation algorithm, based on an analysis of depth
+discontinuities and surface normals. In contrast to the semantic
+instance segmentation, the geometric segmentation runs in real time
+and produces very accurate object boundaries (see Figures 3(d) and
+(e) for an example visualisation of the geometric edge map and the
+geometric components returned by the algorithm). On the negative
+side, geometry-based segmentation tends to oversegment objects.
+The combination of these two segmentation strategies – geometric
+segmentation on a per-frame basis and semantic segmentation as
+often as possible – provides the best of both worlds, allowing us
+to (1) run an overall system in real time (geometric segmentation
+is used for frames without semantic object masks, while the
+combination of both is used for frames with object masks) and (2)
+obtain semantic object masks with improved object boundaries,
+thanks to the geometric segmentation.
+Fusion: The geometry of each object is fused over time by using
+the object labels to associate surfels with the correct model. Our
+fusion follows the same strategy as [23, 50].
+The rest of the paper is organised as follows. We first describe
+the principles of our dynamic RGBD-SLAM method in Section 4;
+further details regarding the integration of the semantic and geometric segmentation results are provided in Section 5. A quantitative
+and qualitative evaluation of the proposed approach is presented in
+Section 6.
+4 MULTI-OBJECT SLAM
+MaskFusion maintains a set of independent 3D models,
+Mm 8m 2 f0::Ng, for each of the N objects recognised
+in the scene and a further model for the background.
+We adopt the surfel representation popularised by [23, 50],
+where a model Mm is represented by a cloud of surfels
+Ms
+m 2 (p 2 R3;n 2 R3;c 2 N3;w 2 R;r 2 R;t 2 R2) 8s < jMmj,
+which are tuples of position, normal, colour, weight, radius and
+two timestamps. Additionally, models are associated with a class ID
+cm 2 f0::80g and an object-label lm = m 8m 2 f0::Ng. Finally, for
+each time instance t, an is static indicator stm 2 0;1 and a rigid pose
+Rtm 2 SO3, ttm 2 R3 is stored.
+4.1 Tracking
+Assuming that a good estimate exists for the pose of model Mm at
+time t −1, the pose at time t is inferred by aligning the current depthmap Dt and intensity-map It with the projection Dta−1;Ita−1 of
+Mm, which is generated by rendering its surfels using the OpenGL
+pipeline. Here, Dt and It are mappings from image-coordinates
+W ⊂ N2 to depth Dt : W ! R and grey-scale It : W ! N, respectively.
+It is derived by weighting RGB channels as follows: r;g;b 7!
+0:299r + 0:587g+ 0:114b.
+The alignment is performed by minimising a joint geometric and
+photometric error function [39, 50]:
+Em = min
+xm
+(Emicp + lEmrgb); (1)
+where Emicp and Emrgb are the geometric and photometric error
+terms respectively and xm is the unknown rigid transformation, expressed in a minimal 6D Lie algebra representation se3, which is
+subject to optimisation.
+The first term in equation (1) is a sum of projective ICP residuals.
+Given a vertex vi
+t, which is the back-projection of the i-th vertex in
+Dt; and vi and ni, the corresponding vertex and normal in Dta−1 (the
+geometry expressed in the camera coordinate frame at time t − 1),
+Emicp is written as:
+Eicp
+m = ∑
+i
+(vi − exp(xm)vti) ·ni2 (2)
+The photometric term, on the other hand, is a sum of photoconsistency residuals between It and Ita−1, and reads as follows:
+Ergb
+m = ∑
+u2W
+It(u) −Ita−1(p(exp(xm)p−1(u;Dt)))2 (3)
+Here, p performs a perspective projection p : R3 ! R2, whereas
+p−1 back-projects from a depth map with 2D coordinate. To optimise this non-linear least-squares cost we use a Gauss-Newton
+solver with a four level coarse-to-fine pyramid scheme. The CUDA
+accelerated implementation of the solver builds on the open source
+code releases of [50] and [39].
+4.2 Fusion
+Given Rtm and ttm, surfels for each model Mm are updated by
+performing a projective data association with the current RGBD
+frame. This step is inspired by [23] but a stencilling based on the
+segmentation discussed in Section 5 is used to adhere to object
+boundaries. As a result, each newly created surfel is part of exactly
+one model. Further, we introduce a confidence penalty for surfels
+outside the stencil, which is required due to imperfect segmentations.
+5 SEGMENTATION
+MaskFusion reconstructs and tracks multiple objects simultaneously,
+maintaining separate models. As a consequence, new data has to
+be associated with the correct model before fusion is performed.
+Inspired by Co-Fusion [39], instead of associating data in 3D, segmentation is carried out in 2D and model-to-segment correspondences are established. Given these correspondences, new frames
+are masked and only subsets of the data are fused with existing
+models. Masking is based on the semantic instance segmentation
+labels proposed by a DNN [15], in conjunction with geometric segmentation, which improves the quality of object boundaries. Our
+semantic segmentation pipeline provides masks at 30Hz or more.
+The design of the pipeline is based on the following observations:
+(i) Current semantic segmentation methods are good at detecting
+objects, but tend to provide imperfect object boundaries. (ii) The current state-of-the-art approach, Mask-RCNN [15], cannot be executed
+at frame rate. (iii) The information contained in RGBD frames enables fast over-segmentation of the image, for instance by assuming
+object convexity.
+The second observation directly implies that to achieve overall
+real-time performance our system must execute instance level semantic segmentation in a parallel thread concurrently to the tracking and
+fusion threads. However, executing two programs at different frequencies concurrently requires a synchronisation strategy. We buffer
+new frames in a queue Qf and refer the SLAM system to the head of
+the queue, while the semantic segmentation operates on the back of
+the queue, as illustrated in Figure 2a. This way, the execution of the
+SLAM pipeline is delayed by the worst-case processing time of the
+semantic segmentation. In our experiments we picked a queue length
+of 12 frames, which involves a delay of approx. 400ms. Whether
+this delay can be neglected or not, depends on the use-case of the
+system. Even though a latency exists, the system runs at a frame-rate
+of 30fps. Furthermore, a semantic segmentation is not available for
+most frames due to the lower execution frequency of the masking
+component, yet each frame requires a labelling in order to fuse new
+data. This issue is solved by associating regions of mask-less frames
+with existing models only, as discussed in Section 5.3.
+To compensate for inexact boundaries, as mentioned in observation 1, we make use of observation 3 and map components from
+a geometric over-segmentation to semantic masks. This results in
+improved masks, due to higher-quality boundaries of the geometric
+segmentation.
+(a) RGB input (b) Depth map
+(c) Semantic masks (d) Geometric edges
+(e) Components (f) Projected labels (g) Final segmentation
+(h) Reconstructed objects
+Figure 3: Breakdown of the segmentation method. While (a) and (b)
+show an input RGBD frame, (c)-(g) visualise the output of different
+stages.
+(a) Segment of interest (b) Semantic only (c) With geometric
+Figure 4: Comparison of boundaries produced by semantic labelling
+only and by merged semantic and geometric labelling. While the
+semantic segmentation is smooth, it lacks important details.
+5.1 SEMANTIC INSTANCE SEGMENTATION
+A variety [15, 27, 36] of recently proposed neural network architectures are tackling the problem of instance-level object segmentation.
+They outperform traditional methods and are capable of handling a
+large set of object classes. Of these methods, Mask-RCNN [15] is
+especially compelling, as it provides superior segmentation quality
+at a relatively high frame-rate of 5Hz. The semantic segmentation
+pipeline of MaskFusion is based on Mask-RCNN1, which maps
+RGB frames to a set of object masks Ltn s : W ! f0;1g, bounding
+boxes btn 2 N4 and class IDs ctn 2 f0::80g, for all n 2 f1::Ntsg of
+the Ns
+t instances detected in the frame at time t.
+Mask-RCNN achieves this by extending the Faster-RCNN [37]
+architecture. Faster-RCNN is a two-stage approach that proposes
+regions of interest first and then predicts an object class and bounding
+box per region and in parallel. He et al. added a third branch to
+the second stage, which generates masks independently of class
+IDs and bounding boxes. Both stages rely on a feature map, which
+is extracted by a ResNet [16]-based backbone network, and apply
+convolutional layers for inference.
+Figure 3c visualises the output of Mask-RCNN. Note that instances of the same class are highlighted with different colours, and
+also that masks are not perfectly aligned with object boundaries.
+5.2 GEOMETRIC SEGMENTATION
+Assuming that objects – especially man-made objects – are largely
+convex, it is possible to build fast segmentation methods that place
+edges in concave areas and depth discontinuities. In practice, such
+methods tend to oversegment data, due to the simplified premise.
+Moosmann et al. [29] successfully segment 3D laser data based on
+this assumption. The same principle is also used by other authors to
+segment objects in RGBD frames [13, 22, 42, 45, 47].
+Our geometric segmentation method follows this approach and,
+similarly to [45], generates an edginess-map based on a depth discontinuity term fd and concavity term fc. Specifically, a pixel is
+defined as an edge pixel if fd +lf ˆ c > t, where t is a threshold and
+lˆ a relative weight. Given a local neighbourhood N , fd and fc are
+computed as follows:
+fd = max
+i2N
+j(vi −v)·nj (4)
+fc = max
+i2N (0 if 1−(ni ·n) else (vi −v)·n < 0 (5)
+Here, v and vi indicate vertex positions, while n and ni represent
+normals, obtained by back-projecting Dt. Since fd +lf ˆ c depends
+on a local neighbourhood only, the edginess of a pixel can be evaluated quickly on a GPU. Figure 3d shows the edge map for a frame
+that was captured with an Asus Xtion RGBD-camera. Edge maps
+are converted to a geometric labelling Ltg : W ! f0::Ntgg, where Ntg
+is the number of extracted components excluding the background,
+by running an out-of-the-box connected components algorithm, as
+illustrated in Figure 3e.
+5.3 MERGED SEGMENTATION
+For each frame that is processed by the SLAM system, the pipeline
+illustrated in Figure 5 is executed. While the geometric segmentation,
+shown on the left-hand-side, is performed for all frames, geometric
+labels are mapped to semantic masks only if these are available. In
+the absence of semantic masks, geometric labels are associated with
+existing models directly and the following steps are skipped:
+1We are using the Matterport [1] implementation of Mask-RCNN.
+Distance term
+Convexity term
+Threshhold +
+Components
+Map to masks
+Geometric
+Each frame
+Frames with masks
+Remove islands
+Map to models
+Geometric+Semantic
+Map to models
+Figure 5: Overview of performed segmentation steps. A geometric
+segmentation is performed for each frame and resulting components
+are mapped to masks if available, which in turn are mapped to
+existing models. Components that are not mapped to masks are
+directly associated with an object, if possible.
+5.3.1 Mapping geometric labels to masks
+After over-segmenting input frames geometrically, the resulting components Cti 8i 2 f1::Ntgg are mapped to masks Ltn s by identifying
+the one with maximal overlap. Only if this overlap is greater than
+a threshold – in our experiments 65% · jCtij, where jCtij denotes
+the number of pixels belonging to component Cti – a mapping is
+assigned. Note that multiple components can be mapped to the same
+mask, but no more than a single mask is linked to a component.
+An updated labelling Ltc : W ! 1::Nts is computed, which replaces
+component with mask IDs, if an assignment was made.
+5.3.2 Mapping masks to models
+Next, a similar overlap between grouped components Ct j in Ltc
+and projected object labels L a, as shown in Figure 3f, is evaluated.
+Requiring that the camera and objects are tracked correctly, L a
+is generated by rendering all models using the OpenGL pipeline.
+Besides testing an analogous threshold to before (5% · jCt jj), it is
+verified that the object class IDs of model and mask coincide.
+Components that are not yet assigned to a model are now considered to be assigned directly. This is necessary because Mask-RCNN
+can fail to recognise objects, and most frames are expected to not
+exhibit any masks. Once again, an overlap of 65% · jCij between
+remaining components and labels in L a is evaluated.
+The final segmentation Lt : W ! f0::Ng contains the object ids
+of the models associated with relevant components. A special predefined value2 is used to specify areas that ought to be ignored
+during fusion. This is especially useful to explicitly prevent the
+reconstruction of certain object classes, such as the arm of the person
+in Figure 3g, highlighted in white.
+6 EVALUATION
+Since the mapping and tracking components of MaskFusion are
+based on the work of [39, 50], we focus on the ability to tackle
+challenging problems that are not solvable by traditional SLAM
+systems and refer the reader to the corresponding publications for
+additional details.
+6.1 Quantitative results
+6.1.1 Trajectory estimation
+To objectively compare MaskFusion with other methods, we evaluate its performance on an established RGBD benchmark dataset [43].
+2We use the value 255, as we represent labels as unsigned bytes and
+assume a number of models less than that.
+Setting Sequence VO-SF EF CF SF MF
+Slightly
+dynamic
+f3s static 2.9 0.9 1.1 1.3 2.1
+f3s xyz 11.1 2.6 2.7 4.0 3.1
+f3s halfsphere 18.0 13.8 3.6 4.0 5.2
+Highly
+dynamic
+f3w static 32.7 6.2 55.1 1.4 3.5
+f3w xyz 87.4 21.6 69.6 12.7 10.4
+f3w halfsphere 73.9 20.9 80.3 39.1 10.6
+(a) Comparison of AT-RMSEs (cm)
+Setting Sequence VO-SF EF CF SF MF
+Slightly
+dynamic
+f3s static 2.4 1.0 1.1 1.1 1.7
+f3s xyz 5.7 2.8 2.7 2.8 4.6
+f3s halfsphere 7.5 10.2 3.0 3.0 4.1
+Highly
+dynamic
+f3w static 10.1 5.8 22.4 1.3 3.9
+f3w xyz 27.7 21.4 32.9 12.1 9.7
+f3w halfsphere 33.5 16.3 40.0 20.7 9.3
+(b) Comparison of translational RP-RMSEs (cm/s)
+Setting Sequence VO-SF EF CF SF MF
+Slightly
+dynamic
+f3s static 0.71 0.32 0.44 0.43 0.54
+f3s xyz 1.44 0.77 1.00 0.92 1.25
+f3s halfsphere 2.98 3.20 1.92 2.11 2.07
+Highly
+dynamic
+f3w static 1.68 1.06 4.01 0.38 0.76
+f3w xyz 5.11 4.31 5.55 2.66 2.00
+f3w halfsphere 6.69 4.47 13.02 5.04 3.35
+(c) Comparison of rotational RP-RMSEs (deg/s)
+Table 2: Quantitative comparison to other methods.
+This dataset offers sequences of colour and depth frames and includes ground-truth camera poses to compare with. Measures commonly used for the analysis of visual SLAM or visual odometry
+methods are the absolute trajectory error (ATE) and the relative pose
+error (RPE). While the ATE evaluates the overall quality of a trajectory by summing positional offsets of ground-truth and reconstructed
+locations, the RPE considers local motion errors and therefore surrogates drift. To provide scene-length independent measures, both
+entities are usually expressed as root-mean-square-error (RMSE).
+Since MaskFusion is designed to work in dynamic environments,
+we chose according sequences from the dataset.
+First, we estimate camera motion on scenes that involve rapid
+movement of persons. As our method – as with the methods to
+which we compare – is not capable of reconstructing deformable
+parts, we exploit the contextual knowledge of MaskFusion to neglect
+data associated with persons. Table 2 lists AT-RMSE and RP-RMSE
+measurements of five methods, including MaskFusion (MF):
+• VO-SF [21]: A close to real-time method that computes
+piecewise-rigid scene flow to segment dynamic objects.
+• ElasticFusion EF [50]: A visual SLAM system that assumes a
+static environment.
+• Co-Fusion (CF) [39]: A visual SLAM system that separates
+objects by motion.
+• StaticFusion (SF) [41]: A 3D reconstruction system that segments and ignores dynamic parts.
+Note that Co-Fusion and MaskFusion are the only systems that
+maintain multiple object models. The sequences in Table 2 are
+roughly ordered by difficulty and latter rows exhibit an increasing
+amount of dynamic motion. While f3s abbreviates freiburg3 sitting,
+f3w stands for freiburg3 walking.
+Interestingly, ElasticFusion performs best in the presence of slight
+motion, even though it assumes static scenes. Our interpretation of
+2 1 0 1 2
+x [m]
+2.0
+1.5
+1.0
+0.5
+0.0
+y [m]
+ground truth
+camera
+teddy
+Figure 6: Comparison of camera and object trajectories with groundtruth. The AT-RMSEs amount to 2:2cm and 8:9cm for the teddy
+bear and camera trajectory, respectively. Because the bear occupies
+a significant proportion of the field of view, tracking it independently
+affects the quality of the camera pose estimation. Treating the object
+as part of the background would reduce the camera AT-RMSE to
+7:2cm.
+this is that other methods label points as dynamic / outlier that would
+still be beneficial for tracking, and hence show inferior performance.
+Making use of context information proves to be especially useful
+in highly dynamic scenes, or when the beginning of a scene is
+difficult. These cases can be hard to tackle by energy minimisation,
+whereas semantic segmentation results are shown to be robust.
+Further, we reconstruct and track the teddy bear in sequence
+f3 long office independently from the background motion. This way
+it is possible to compare the estimated object trajectory with the
+ground-truth camera trajectory, as highlighted in Figure 6. The trajectory of the bear is only available for a subsection of the sequence
+as it is out-of-view otherwise.
+6.1.2 Reconstruction
+We conducted a quantitative evaluation of the quality of the 3D reconstruction achieved by MaskFusion using objects from the YCB Object and Model Set [4], a benchmark designed to facilitate progress
+in robotic manipulation applications. The YCB set provides physical daily life objects of different categories, which are supplied to
+research teams, as well as a database with mesh models and highresolution RGB-D scans of the objects. We selected a ground truth
+model from the dataset (a bleach bottle), and acquired a dynamic
+sequence to quantitatively evaluate the errors in the 3D reconstruction. Figure 9 shows an image of the object, the ground truth 3D
+model, our reconstruction and a heatmap showing the 3D error per
+surfel. The average 3D error for the bleach bottle was 7:0mm with
+a standard deviation of 5:8mm (where the GT bottle is 250mm tall
+and 100mm across).
+6.1.3 Segmentation
+To assess the quality of the segmentation quantitatively we acquired a
+600 frame long sequence and provided ground truth 2D annotations
+for the masks of one of the objects (teddy). Figure 8 shows the
+intersection over union (IoU) graphs for three different runs. The
+IoU of the per-frame segmentation masks obtained with MaskRCNN
+only and MaskRCNN combined with the geometric segmentation
+are shown in red and blue respectively. The blue curve shows the
+IoU obtained using our full method, where the object masks are
+obtained by reprojecting the reconstructed 3D model. This graph
+(a) Input frame 515 (b) Reconstruction at frame 515
+Figure 7: Detecting persons allows MaskFusion to ignore them. In
+this challenging sequence (fr3 walking halfsphere), the reconstruction only contains static parts.
+shows how combining semantic and geometric cues results in more
+accurate segmentations, but even better results are achieved when
+maintaining temporally consistent 3D models over the sequence
+through tracking and fusion.
+6.2 Qualitative results
+We tested MaskFusion on a variety of dynamic sequences, which
+show that it presents an effective toolbox for different use cases.
+6.2.1 Grasping
+A common but challenging task in robotics is to grasp objects. Aside
+from requiring sophisticated actuators, a robot needs to identify
+grasping points on the correct object. MaskFusion is well suited
+to provide the relevant data, as it detects and reconstructs objects
+densely. Further, and in contrast to most other systems, it continues
+the tracking during interaction. If the appearance of the actuator is
+known in advance or if a person interacts with objects, the neural
+network can be trained to exclude these parts from the reconstruction. Figure 12 shows a timeline of frames that illustrate a grasping
+performance. In this example, the first 600 frames were used to
+detect and model 5 objects in the scene, while tracking the camera.
+We implemented a simple hand-detector that is used to recognise
+when an object is touched, and as soon as the person interacts with
+the spray-bottle, the object is tracked reliably until it is placed back
+on the table at frame 1100.
+6.2.2 Augmented reality
+Visual SLAM is a building block of many augmented reality systems and we believe that adding semantic information enables new
+kinds of applications. To illustrate that MaskFusion can be used for
+augmented reality applications, we implemented demos that rely
+and geometric as well as semantic data in dynamic scenes:
+Calories demo This prototype aims at estimating the calories of
+an object-based on its class and shape. By estimating body volumes,
+using simple primitive fitting, and providing a database with calories
+per volume unit ratios for different classes, it is straightforward to
+augment footage with the desired information. Experiments based
+on this prototype are shown in Figure 11.
+Skateboard demo Another demo program presents a virtual character that actively reacts to its environment. As soon as the skateboard appears in the scene the character jumps and remains on it,
+as depicted in Figure 10. Note that the character stays attached to
+the board even after a person kicks it and sets it into motion. This
+requires accurate tracking of the skateboard and camera at the same
+time.
+0 100 200 300 400 500
+Frame
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95
+1.00
+Intersection-over-union
+MRCNN
+MRCNN+GEOM
+Ours
+Figure 8: Comparison of labelling performance over time. Results of
+Mask-RCNN (MRCNN) and Mask-RCNN followed by our geometric segmentation pipeline (MRCNN+GEOM) are frame-independent
+and variations in quality are only due to changes in camera perspective. The blue graph (Ours) shows the intersection-over-union correlating ground-truth 2D labels with the projection of the reconstructed
+3D model.
+(a) Real object (b) 3D model (c) Ours (d) Error
+(e) Frame 500 (f) Frame 950
+Figure 9: Reconstruction of a bleach bottle from the YCB dataset.
+The average distance of a reconstructed surfel to a point on the
+ground-truth model is 7:0mm with a standard deviation of 5:8mm.
+(a) Semantic reaction (b) Object interaction (c) Obeying dynamics
+Figure 10: AR application that shows a virtual character interacting
+with the scene.
+(a) Showing estimated calories for a
+banana
+(b) Showing estimated calories for a
+carrot
+(c) 3D reconstruction (d) Object labels in 3D
+Figure 11: AR application that estimates the calories of groceries.
+6.3 Performance
+The convolutional masking component runs asynchronously to the
+rest of MaskFusion and requires a dedicated GPU. It operates at
+5Hz, and since it is blocking the GPU for long periods of time, we
+use another GPU for the SLAM pipeline, which operates at >30Hz
+if a single model is tracked. In the presence of multiple non-static
+objects, the performance declines and results in a frame-rate of 20Hz
+for 3 models. Our test system is equipped with two Nvidia GTX
+Titan X and an Intel Core i7, 3.5GHz.
+7 CONCLUSIONS
+This paper introduced MaskFusion, a real-time visual SLAM system
+that utilises semantic scene understanding to map and track multiple
+objects. While inferring semantic labels from 2D image data, the
+system maintains independent 3D models for each object instance
+and for the background. We showed that MaskFusion can be used to
+implement novel augmented reality applications or perform common
+robotics tasks.
+While MaskFusion makes meaningful progress towards achieving an accurate, robust and general dynamic and semantic SLAM
+system, it comes with limitations in the three main problems it addresses: recognition, reconstruction and tracking. Regarding the
+recognition, MaskFusion can only recognise objects from classes on
+which MaskRCNN [15] has been trained (currently the 80 classes of
+the MS-COCO dataset) and does not account for miss-classification
+of object labels. Secondly, although MaskFusion can cope with the
+presence of some non-rigid objects, such as humans, by removing
+them from the map, tracking and reconstruction is limited to rigid
+objects. Thirdly, tracking small objects with little geometric information when no 3D model is available can result in errors. Solving
+these limitations opens up opportunities for future work.
+ACKNOWLEDGMENTS
+This work has been supported by the SecondHands project, funded
+from the EU Horizon 2020 Research and Innovation programme
+under grant agreement No 643950.
+Skateboard sequence
+(a) Frame 300 (b) Frame 325 (c) Frame 350
+Tidy-up sequence
+(d) Frame 400 (e) Frame 800 (f) Frame 1000
+Holding two objects sequence
+(g) Frame 300 (h) Frame 500 (i) Frame 600
+Figure 12: Overview of evaluation sequences.
+(a) Frame 300 (b) Frame 600 (c) Frame 800 (d) Reconstruction
+(e) Frame 900 (f) Frame 1000 (g) Frame 1160 (h) Normals
+Figure 13: A series of 6 frames, illustrating the recognition, tracking and mapping capabilities of MaskFusion. While a keyboard (grey), vase
+(pink), teddy-bear (white) and spray-bottle (orange) were detected from the beginning, the ball (blue) appeared between frame 300 and 600.
+The right hand side shows the reconstruction and estimated normals. The spray-bottle was moved by a person between frame 600 and 1000,
+but MaskFusion explicitly avoided to reconstruct person-related geometr
