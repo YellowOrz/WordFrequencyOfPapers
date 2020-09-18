@@ -1,0 +1,539 @@
+obust Reconstruction of Indoor Scenes
+Sungjoon Choi∗ y Qian-Yi Zhou∗ z Vladlen Koltunz
+Abstract
+We present an approach to indoor scene reconstruction
+from RGB-D video. The key idea is to combine geometric registration of scene fragments with robust global optimization based on line processes. Geometric registration
+is error-prone due to sensor noise, which leads to aliasing of geometric detail and inability to disambiguate different surfaces in the scene. The presented optimization approach disables erroneous geometric alignments even when
+they significantly outnumber correct ones. Experimental results demonstrate that the presented approach substantially
+increases the accuracy of reconstructed scene models.
+1. Introduction
+High-fidelity reconstruction of complete indoor scenes
+is known as a particularly challenging problem [19, 29, 64,
+7]. Many indoor reconstruction systems make simplifying
+assumptions and forfeit detail in the reconstructed model
+[19, 64, 7], rely on user interaction [17], or both [37, 53].
+Other systems rely on substantial hardware setups based on
+LiDAR scanners [11, 59].
+The availability of consumer depth cameras provides an
+opportunity to develop robust reconstruction systems but
+does not in itself solve the associated challenges. While
+3D models of real-world objects can now be created easily
+[46, 70], the same combination of quality and reliability has
+yet to be achieved for complete scenes. Unlike an object,
+which can be entirely in the field of view of the camera,
+a large scene must be reconstructed from views acquired
+along a complex trajectory, each view exposing only a small
+part of the environment. Camera paths that thoroughly image all surfaces at close range lead to significant odometry
+drift and the necessity to match and register different views
+globally.
+Prior work on scene reconstruction with consumer depth
+cameras recognized the importance of global registration
+[29, 18, 69, 62, 65]. Nevertheless, no prior system appears
+to be sufficiently reliable to support automatic reconstruc-
+∗Joint first authors
+yStanford University
+zIntel Labs
+tion of complete indoor scenes at a quality level appropriate
+for particularly demanding applications. This is evidenced
+by the recent effort of Xiao et al. to reconstruct a large number of indoor scenes. Due to the unreliability of automatic
+scene reconstruction pipelines, the authors resorted to manual labeling to establish correspondences between different
+views. (“existing automatic reconstruction methods are not
+reliable enough for our purposes.” [65])
+In this work, we present a fully automatic scene reconstruction pipeline that matches the reconstruction quality
+obtained with manual assistance by Xiao et al. and significantly exceeds the accuracy of prior automatic approaches
+to indoor reconstruction. An example reconstruction produced by our approach is shown in Figure 1. Our pipeline is
+geometric: pairs of local scene fragments are registered and
+a global model is constructed based on these pairwise alignments [31]. A critical weakness of such pipelines that we
+address is the low precision of geometric registration. Geometric registration algorithms are error-prone due to sensor
+noise, which leads to aliasing of fine geometric details and
+inability to disambiguate different locations based on local
+geometry. The difficulty is compounded by the necessity to
+register loop closure fragments that have low overlap. In
+practice, false pairwise alignments can outnumber correctly
+aligned pairs.
+Our approach resolves inconsistencies and identifies correct alignments using global optimization based on line processes. Line processes were introduced in the context of
+image restoration as a means for automatically identifying discontinuities as part of a single global optimization
+[22, 21]. They are closely related to robust estimation [4].
+The advantage of the line process formulation is that the
+optimization objective retains a least-squares form and can
+be optimized by a standard high-performance least-squares
+solver. We show that this framework is extremely effective
+in dealing with pairwise registration errors. Our implementation automatically prunes false pairwise alignments even
+when they significantly outnumber correct ones. Extensive
+experiments demonstrate that our approach substantially increases reconstruction accuracy.
+Our work contains a number of supporting contributions
+of independent interest. First, we provide infrastructure for
+rigorous evaluation of scene reconstruction accuracy, augmenting the ICL-NUIM dataset [26] with challenging cam-
+1
+Trajectory
+Figure 1. A complete apartment reconstructed by the presented approach. The estimated camera trajectory is 151.6 meters long, folded
+into a diameter of 8.3 meters.
+era trajectories and a realistic noise model. Second, we perform a thorough quantitative evaluation of surface registration algorithms in the context of scene reconstruction; our
+results indicate that well-known algorithms perform surprisingly poorly and that algorithms introduced in the last
+few years are outperformed by older approaches. Third, in
+addition to accuracy measurements on synthetic scenes we
+describe an experimental procedure for quantitative evaluation of reconstruction quality on real-world scenes in the
+absence of ground-truth data.
+2. Related Work
+The influential KinectFusion system demonstrated realtime dense reconstruction with a consumer depth camera
+[46], building on earlier work on range image integration
+[14], visual odometry [15, 48, 38], and real-time 3D reconstruction [51, 49, 45]. The original KinectFusion system
+used a flat voxel grid and was limited to small volumes, but
+this limitation has since been removed [9, 61, 47]. Alternative odometry algorithms that can improve the accuracy of
+the system have also been proposed [6, 61]. These systems
+do not detect loop closures and are limited either to compact workspaces or to fairly simple walk-along trajectories.
+Without dedicated loop closure handling, the complex camera paths that are necessary for comprehensive imaging of
+furnished indoor scenes lead to broken reconstructions [69].
+A number of RGB-D reconstruction systems with integrated loop closure handling have been developed [29, 18,
+28, 56, 62]. They all detect loop closures by matching individual RGB-D images using either visual features such
+as SIFT or SURF keypoints or through dense image registration. This approach delivers real-time performance but
+assumes that different images that observe the same location in the scene are sufficiently similar. It is thus liable to
+miss loop closures that are not certified by matching images,
+as illustrated in Figure 2. Our setting is different in that
+real-time performance is not a requirement. High-quality
+off-line scene reconstruction is valuable in many application domains [19, 65, 69, 59].
+Off-line global optimization for high-fidelity RGB-D reconstruction was previously considered by Zhou et al. [69,
+72, 71]. Their work relied on an initialization provided by
+an off-the-shelf loop closure detection module [18]. It was
+thus prone to failure when the provided loop closure set
+was incomplete. Our work presents an integrated approach
+to loop closure detection and handling based on geometric
+registration and robust optimization.
+Geometric registration of range data has been extensively studied [44]. A typical registration pipeline samples constellations of points on one surface and uses matching configurations on the other surface to compute candidate transformations. The challenge is that exhaustive
+sampling and matching are prohibitively expensive. In
+the past decade researchers have studied local shape descriptors that can be used for pruning and correspondence
+[20, 52, 55, 24], and proposed different types of constellations [2, 16, 43]. Nevertheless, misregistrations are still
+common in practice. Our approach uses global optimization to make the reconstruction pipeline robust to geometric
+registration errors.
+Global optimization of range scan poses based on hypothesized pairwise relations was introduced by Lu and
+Milios [41] and is commonly used in robotics [13, 33, 23].
+In our setting, all pairwise relations are noisy and the set
+of relations is heavily contaminated by outliers. Huber and
+Hebert [32] described an algorithm that rejects outliers by
+searching for a maximally consistent spanning tree in the
+pairwise relation graph; a similar technique has been used
+for reassembling fractured objects [30]. This approach assumes that the scene can be covered by accurate pairwise
+alignments, which is not true in our case.
+Our solution is based on line processes [4]. This formulation enables effective outlier rejection using a highperformance least-squares solver. A single optimization
+aligns the scene and identifies the outliers even if they
+outnumber veridical matches. Related formulations were
+recently introduced in the context of robot localization
+[57, 58, 40, 1] and bundle adjustment [66]. In structure
+from motion estimation, robustness can be increased using appropriate penalty functions [12, 27, 8] or by identifying inconsistent substructures among pairwise relations
+between camera poses [67, 68, 50, 63]. Our work is related but focuses on dense scene reconstruction from range
+video. We present a dedicated formulation for dense surface
+reconstruction that identifies outliers by directly optimizing
+for surface alignment, using an objective that efficiently incorporates dense correspondence constraints. Our experiments demonstrate that the presented formulation signifFigure 2. A challenging loop closure in the mit 32 d507 scene
+from the SUN3D dataset [65]. Top: this loop closure is not certified by sufficiently similar images and is missed by prior scene
+reconstruction pipelines. Bottom: our approach matches the underlying geometry and successfully detects the loop closure. A
+complete reconstruction of this scene is shown in Figure 4.
+icantly outperforms prior robust optimization frameworks
+that do not incorporate dense surface alignment.
+3. Overview
+Fragment construction. Individual range images are
+noisy and incomplete. To derive more reliable information
+on local surface geometry, we partition the input RGB-D
+video into k-frame segments (k=50 in all experiments), use
+RGB-D odometry to estimate the camera trajectory [35],
+and fuse the range images to obtain a surface mesh for each
+segment [14]. These scene fragments integrate out some of
+the noise in the range data and yield more reliable normal
+information [69, 72]. They have a larger footprint in the
+scene than individual images without suffering from significant odometry drift. Fragments are analogous to submaps,
+which are used in a number of robotic mapping systems
+[25, 5, 54, 10]. Let Pi = fpg be the vertex set of fragment i and let Ri be a rigid transformation that aligns Pi to
+Pi+1, computed by RGB-D odometry.
+Geometric registration. Due to odometry drift, simply
+using the transformations fRig to localize the fragments
+yields broken reconstructions in which non-consecutive
+fragments that cover overlapping parts of the scene are misaligned. For this reason, we test each pair of fragments to
+find overlapping pairs. A geometric registration algorithm
+is run on each pair (Pi; Pj). If the algorithm succeeds in
+aligning the fragments with sufficient overlap, a candidate
+loop closure is established between fragments i and j with
+an associated transformation Tij.
+Robust optimization. Many of the putative loop closures found by pairwise registration are false positives. We
+identify these spurious loop closures by optimizing a dense
+surface registration objective augmented by a line process
+over the loop closure constraints. A single least-squares
+objective jointly estimates the global configuration of the
+scene and the validity of each constraint. This formulation
+enables reliable pruning of erroneous constraints even when
+they substantially outnumber genuine loop closures.
+Final model. After the final set of loop closures is identified, the odometry and loop closure transformations are
+refined using ICP. Pose graph optimization is used to obtain
+the final fragment poses fTig in the global frame [39]. Optional nonrigid refinement can be used to further improve
+the registration [71]. The registered fragments are fused
+into a global mesh model by volumetric integration [14].
+4. Geometric Registration
+We begin with a quantitative analysis of state-of-the-art
+surface registration algorithms on indoor scene data. This
+analysis motivates our approach. The analysis was performed on the augmented ICL-NUIM dataset, which augments the synthetic scenes of Handa et al. [26] with complex camera trajectories and a realistic noise model. The
+dataset is described in detail in supplementary material.
+Given an input range video, a set of fragments fPig was
+constructed as described in Section 3. Consider a fragment
+pair (Pi; Pj), with Pi being the smaller in terms of surface
+area. This pair was identified as a ground-truth loop closure if their overlap in the ground-truth scene covers more
+than 30% of Pi. In this case, a ground-truth transformation
+T∗
+ij and a set of point-to-point correspondences Kij ∗ were
+associated with this pair.
+Each algorithm was run on every fragment pair (Pi; Pj).
+A computed transformation Tij was retained as a proposed
+loop closure if over 30% of TijPi overlaps with Pj. Each
+algorithm’s proposed loop closures were used to measure
+its recall and precision. For this measurement it is not
+sufficient to consider the intersection of the proposed and
+ground-truth loop closure sets, since an algorithm may have
+correctly determined that there is a loop closure between Pi
+and Pj but produced an erroneous transformation. Therefore the candidate transformation Tij was compared to the
+ground-truth transformation T∗ ij. To avoid arbitrary choices
+in weighting different degrees of freedom in transformation space, we directly measured the effect of Tij on the
+ground-truth correspondences Kij ∗ . A transformation is accepted if it brings these ground-truth correspondence pairs
+into alignment. Specifically, Tij is considered a true positive if the RMSE of the ground-truth correspondences is
+below a threshold τ:
+1
+jKij ∗ j
+X
+(p∗;q∗)2Kij ∗
+kTijp∗ − q∗k2 < τ2:
+We used a fairly liberal threshold τ = 0:2 meters in all
+experiments.
+Table 1 lists the average recall and precision of different
+algorithms on the augmented ICL-NUIM dataset. OpenCV
+is a recent OpenCV implementation of the surface registration algorithm of Drost et al. [16]. All look-up tables
+were precomputed for accelerated performance. 4PCS is
+the algorithm of Aiger et al. [2] and Super 4PCS is the
+recent algorithm of Mellado et al. [43]. We worked with
+the authors of Super 4PCS to determine the best parameter values for their approach. PPF Integral is our custom implementation that combines the point pair features of
+Drost et al. [16] with subsampling based on integral invariants [42, 20]. PCL is a Point Cloud Library implementation
+of the algorithm of Rusu et al. [52, 3]. PCL modified is
+our variant of Rusu’s algorithm, described in supplementary
+material.
+OpenCV 4PCS Super
+4PCS
+PPF
+Integral PCL modified PCL
+Recall (%) 5.3 20.0 17.8 32.5 44.9 59.2
+Precision (%) 1.6 8.9 10.4 7.1 14.0 19.6
+Runtime (sec) 10 380 62 83 3 8
+Table 1. Performance of geometric registration algorithms. Average running time for aligning two fragments was measured using
+a single thread on an Intel Core i7-3770 CPU clocked at 3.5 GHz.
+Surprisingly, the algorithm of Rusu et al. outperforms
+all other approaches, including more recent ones. Based
+on this experiment, our pipeline uses the PCL modified
+algorithm for pairwise geometric registration.
+As the results in Table 1 indicate, the precision of even
+the highest-performing geometric registration algorithms is
+below 20%. We attribute this primarily to the limited discriminative power of surface geometry that was sampled at
+limited range, resolution, and field of view, and corrupted
+by noise and distortion. This aliasing permits reasonable recall but limits precision. As illustrated in Figure 3(a), some
+false positive alignments are very plausible when considered independently. Thus, rather than attempt to develop a
+pairwise surface registration procedure with high recall and
+near-perfect precision, we show in Section 5 that these characteristics can be achieved by a global analysis of the scene.
+5. Robust Optimization
+The analysis in Section 4 indicates that most loop closures identified by pairwise surface matching are false positives. We now show that global optimization can be used to
+achieve near-perfect loop closure precision with almost no
+decrease in recall.
+(a) Erroneous alignments (b) Optimization with all pairwise alignments (c) Optimization with line processes
+Figure 3. The precision problem, illustrated on the Living room 1 sequence from the augmented ICL-NUIM dataset. (a) False positive
+alignments of fragment pairs. Note that the alignments look plausible. (b) Pose graph optimization with all pairwise alignments identified
+by geometric registration. (c) Optimization with line processes.
+Consider a pose graph with vertices fPig and edges
+fRig [ fTijg [23]. Our goal is to compute a set of poses
+T = fTig that localizes the fragments in the global coordinate frame. This can be expressed as an objective of the
+form
+E(T) = X
+i
+f(Ti; Ti+1; Ri) + X
+i;j
+f(Ti; Tj; Tij): (1)
+The challenge is that most of the transformations Tij are
+incorrect and will corrupt the optimized configuration, as
+shown in Figure 3(b). We thus add a line process L = flijg
+over the putative loop closures. The variable lij ranges over
+[0; 1] and models the validity of the corresponding loop closure. L and T are optimized jointly:
+E(T; L) = X
+i
+f(Ti; Ti+1; Ri)
++ X
+i;j
+lijf(Ti; Tj; Tij)
++ µX
+i;j
+Ψ(lij): (2)
+The prior term Ψ(lij) expresses a belief that proposed loop
+closures are genuine: Ψ(lij) = (plij − 1)2. Intuitively,
+this term aims to maximize the number of selected loop
+closures (lij ! 1). However, if a constraint distorts the
+configuration and causes a disproportionate increase in the
+alignment terms it can be smoothly disabled (lij ! 0).
+An alignment term f(Ti; Tj; X) measures the inconsistency between poses Ti and Tj and relative pose X. We
+define this function in terms of dense surface alignment. Let
+Kij be the set of correspondence pairs between XPi and Pj
+that are within distance " = 0:05 m. (" was set based on typical sensor noise magnitudes [36].) Define f(Ti; Tj; X) as
+the sum of squared distances between corresponding points
+in TiPi and TjPj:
+f(Ti; Tj; X) = X
+(p;q)2Kij
+kTip − Tjqk2 (3)
+≈ X
+(p;q)2Kij
+kTip − TjXpk2 (4)
+= X
+(p;q)2Kij
+kX−1T− j 1Tip − pk2: (5)
+Line (4) uses the proximity of correspondence
+pairs, which is guaranteed by construction:
+(p; q) 2 Kij ) kXp − qk < ".
+Use a standard local parameterization to represent
+X−1T−1
+j Ti as a 6-vector ξ = (!; t) = (α; β; γ; a; b; c),
+which collects a rotational component ! and a translation t.
+Locally, when T− j 1Ti ≈ X,
+X−1T−1
+j Ti ≈
+0BB@
+1 −γ β a
+γ 1 −α b
+−β α 1 c
+0 0 0 1
+1CCA
+: (6)
+Thus
+X−1T−1
+j Tip ≈ p + ! × p + t:
+Equation (5) can be locally approximated as
+f(Ti; Tj; X) ≈ X
+(p;q)2Kij
+k! × p + tk2
+= X
+(p;q)2Kij
+− [p]× j Iξ 2 ; (7)
+where [p]× is the skew-symmetric matrix form of the cross
+product with p, and I is the 3×3 identity matrix. Define
+G
+p = − [p]× j I.
+f(Ti; Tj; X) ≈ X
+(p;q)2Kij
+kGpξk2
+= X
+(p;q)2Kij
+ξ>G> p Gpξ
+= ξ> 0 @(p;qX)2Kij G> p Gp1 Aξ: (8)
+Since G
+p is constant, f(Ti; Tj; X) can be approximated
+by the quadratic form ξ>Λξ, where the covariance
+Λ = X
+(p;q)2Kij
+G>
+p Gp (9)
+need only be computed once for each alignment term.
+The parameter µ balances the strength of the prior term
+and the alignment terms. Given the above derivation of the
+alignment terms, µ is defined to be proportional to the average cardinality of the correspondence sets Kij, denoted by
+κ: µ = τ2κ: τ is the distance threshold used in Section 4
+and has the same underlying semantics. Intuitively, when an
+error f(Ti; Tj; X) exceeds µ, it outweighs the corresponding prior term.
+The objective (2) is optimized using g2o [39] and loop
+closures with lij < 0:25 are pruned. The remaining loop
+closures are used to construct the final model as described
+in Section 3.
+This formulation is extremely effective. Table 2 summarizes the effect of the presented formulation on the augmented ICL-NUIM dataset. The optimization increases the
+average precision of the loop closure set by a factor of five,
+from below 20% to 97.7%. The average recall decreases by
+only 1.4%.
+Before pruning After pruning
+Recall (%) Precision (%) Recall (%) Precision (%)
+Living room 1 61.2 27.2 57.6 95.1
+Living room 2 49.7 17.0 49.7 97.4
+Office 1 64.4 19.2 63.3 98.3
+Office 2 61.5 14.9 60.7 100.0
+Average 59.2 19.6 57.8 97.7
+Table 2. The effect of robust optimization. The optimization increases the average precision of the loop closure set from 19.6%
+to 97.7%.
+The basic formulation (2) is an application of line processes [4] and has been used for pose graph optimization before [57]. Our work differs by incorporating surface alignment into the objective. To evaluate the impact of this formulation, we measured the loop closure precision achieved
+by the basic switchable constraints approach of Sunderhauf ¨
+and Protzel (SC) [57], the expectation maximization algorithm of Lee et al. (EM) [40], and our formulation. The
+results on the augmented ICL-NUIM dataset are reported
+in Table 3. The prior approaches do improve the precision of the loop closure set, but the improvement is not
+sufficient for satisfactory reconstruction, as shown in Section 6.2. Our formulation achieves near-perfect precision
+and significantly improves reconstruction accuracy.
+Original SC [57] EM [40] Ours
+Living room 1 27.2 54.6 39.6 95.1
+Living room 2 17.0 23.5 20.5 97.4
+Office 1 19.2 39.6 33.7 98.3
+Office 2 14.9 25.2 19.7 100.0
+Average 19.6 35.7 28.4 97.7
+Table 3. The effect of surface alignment modeling. From left to
+right: precision of the loop closure set without pruning, optimization using basic switchable constraints [58], optimization using
+expectation maximization [40], and optimization using our formulation.
+6. Evaluation
+6.1. Datasets
+Augmented ICL-NUIM dataset. Our first dataset is
+based on the synthetic environments provided by Handa et
+al. [26]. The availability of ground-truth surface geometry enables precise measurement of reconstruction accuracy.
+The dataset includes two models of indoor environments: a
+living room and an office. We have augmented the dataset
+in a number of ways to adapt it for evaluation of complete
+scene reconstruction pipelines. We have verified with the
+authors that these extensions are in line with the intended
+usage of the dataset. Our experiments are conducted on four
+input sequences that model thorough handheld imaging for
+the purpose of comprehensive reconstruction: Living room
+1, Living room 2, Office 1, and Office 2. The augmented
+dataset is described in detail in supplementary material.
+SUN3D dataset. Our second dataset is based on the
+SUN3D database of indoor scenes [65]. The original dataset
+released by Xiao et al. includes an off-line system for automatic scene reconstruction based on bundle adjustment,
+which we use for comparison. It also provides a number of
+reconstructions that were created with manual assistance,
+using an interactive interface that lets the user establish
+object-level correspondences across the input video. Xiao
+et al. provided models of eight scenes reconstructed with
+such manual assistance. We focus on these scenes, since the
+manually-assisted reconstructions are a useful reference.
+Running time. Running times for all steps of our
+pipeline are reported in supplementary material.
+6.2. Synthetic scenes
+To evaluate surface reconstruction accuracy on ICLNUIM scenes we use the error measures proposed by Handa
+et al., specifically the mean and median of the distances of
+the reconstructed surfaces to the ground-truth surfaces. For
+each sequence we evaluate four reconstruction pipelines:
+Kintinuous [61], DVO SLAM [34], the automatic bundle
+(a) Kintinuous (b) DVO SLAM
+(c) SUN3D SfM (d) Our result (e) Optional non-rigid refinement
+Figure 4. Reconstruction of the mit 32 d507 scene from the SUN3D dataset. (a) Reconstruction produced by Kintinuous [61]. (b) Reconstruction produced by DVO SLAM [34]. (c) Reconstruction produced by the off-line RGB-D structure-from-motion pipeline of Xiao et
+al. [65]. (d) Reconstruction produced by our approach. (e) An optional non-rigid refinement of our result using SLAC [71].
+adjustment pipeline provided by Xiao et al. [65] (SUN3D
+SfM), and our approach. Qualitative results are shown in
+supplementary material. For reference, we also measure the
+accuracy of a model obtained by fusing the input depth images along the ground-truth trajectory (GT trajectory); these
+depth images are affected by the simulated sensor noise and
+the reconstructed model is thus imperfect. Mean distances
+are reported in Table 4, median distances in supplementary
+material. The presented approach considerably outperforms
+the other reconstruction pipelines. The average mean error
+is reduced by a factor of 2 relative to the closest alternative
+approach (SUN3D SfM). The average median error is reduced by a factor of 2.7. Note that this is a direct evaluation
+of the metric accuracy of reconstructed models.
+Kintinuous
+DVO
+SLAM
+SUN3D
+SfM Ours trajectory GT
+Living room 1 0.22 0.21 0.09 0.04 0.04
+Living room 2 0.14 0.06 0.07 0.07 0.04
+Office 1 0.13 0.11 0.13 0.03 0.03
+Office 2 0.13 0.10 0.09 0.04 0.03
+Average 0.16 0.12 0.10 0.05 0.04
+Table 4. Reconstruction accuracy on ICL-NUIM sequences.
+Mean distance of each reconstructed model to the ground-truth
+surface (in meters). Our approach reduces the average error by a
+factor of 2 relative to the closest alternative approach.
+For completeness, we have also measured the accuracy
+of the estimated camera trajectories using the RMSE metric described by Handa et al. The results are reported in
+supplementary material. Trajectories estimated by our approach are considerably more accurate, with average RMSE
+reduced by a factor of 2.2 relative to the closest alternative
+approach. Note that trajectory accuracy is only an indirect
+measure of reconstruction accuracy: the metric surface accuracy measurements reported in Table 4 are more informative.
+We have also conducted a controlled evaluation of the
+effects of different components of our pipeline on final reconstruction accuracy. Specifically, we substituted the geometric loop closure detection pipeline presented in Section 4 with the state-of-the-art image-based pipeline of Kerl
+et al. [34]. (For these experiments, all settings for imagebased loop closure [34] were set to maximize accuracy, and
+loop closure detection was performed between every single
+pair of frames.) Independently, we substituted the robust
+optimization formulation presented in Section 5 with basic switchable constraints [57] or expectation maximization
+[40]. (These algorithms were also considered in Section 5.)
+The results are reported in Table 5. The presented pipeline
+yields much higher reconstruction accuracy.
+6.3. Real-world scenes
+Experimental procedure. Quantitative evaluation on
+real-world scenes is challenging because there is no groundtruth surface model. We have therefore developed and validated a perceptual evaluation procedure. Extensive pairwise comparisons were collected for all pairs of recon-
+SC [57] EM [40]
+Ours
+[34] geometric [34] geometric
+Living room 1 0.25 0.32 0.46 0.66 0.04
+Living room 2 0.26 0.40 0.26 0.65 0.07
+Office 1 0.11 0.36 0.22 0.56 0.03
+Office 2 0.52 0.27 0.56 0.48 0.04
+Average 0.28 0.34 0.35 0.59 0.05
+Table 5. Controlled evaluation of different components of the
+presented pipeline. Reconstruction accuracy on ICL-NUIM sequences: mean distances to ground-truth models, in meters. Replacing our robust optimization formulation with basic switchable
+constraints (SC) or expectation maximization (EM) results in significant degradation of reconstruction accuracy.
+structed models for each input sequence. Experiments were
+conducted using Amazon Mechanical Turk. The pairwise
+comparison interface and the experimental protocol are described and demonstrated in detail in supplementary material. The collected pairwise comparisons were used to
+compute a numerical score for each reconstructed model via
+Balanced Rank Estimation (BRE) [60]. The BRE scores are
+in the range [−1; 1], higher is better.
+Validation. The experimental procedure was used to
+collect pairwise comparisons and compute BRE scores for
+the ICL-NUIM sequences. We evaluated models reconstructed by Kintinuous, DVO SLAM, SUN3D SfM, and
+our approach. For reference, we also evaluated models
+produced by integration of the noisy input data along the
+ground-truth trajectory. 8,960 pairwise comparisons were
+collected. The resulting BRE scores are shown in Table 6.
+The order of the average BRE scores is identical to the order of the average mean ground-truth distances reported in
+Table 4. Note that the BRE scores are not linearly related
+to the ground-truth distance measures, nor can they be since
+the distance measures are in the range [0; 1) and the BRE
+scores are in the range [−1; 1].
+Kintinuous
+DVO
+SLAM
+SUN3D
+SfM Ours trajectory GT
+Living room 1 -0.53 -0.90 0.02 0.47 0.94
+Living room 2 -0.89 -0.65 -0.13 0.66 0.89
+Office 1 -0.71 -0.41 -0.15 0.09 0.98
+Office 2 -0.83 -0.57 -0.11 0.58 0.90
+Average -0.74 -0.63 -0.09 0.45 0.93
+Table 6. Perceptual evaluation on ICL-NUIM sequences. BRE
+scores computed from pairwise comparisons performed on Amazon Mechanical Turk. The order of the average BRE scores is
+identical to the order of the average mean and median ground-truth
+distances reported in Table 4 and in supplementary material.
+Experimental results. The same experimental procedure was applied to the eight SUN3D sequences. We evaluated models reconstructed by Kintinuous, DVO SLAM,
+SUN3D SfM, and our approach. For reference, we also
+included the manually-assisted reconstructions provided by
+Xiao et al. 17,640 pairwise comparisons were collected.
+The resulting BRE scores are shown in Table 7. The
+presented approach outperforms all other automatic reconstruction pipelines. It is also ranked more highly than the
+manually-assisted reconstructions on 6 out of 8 sequences.
+We ascribe this to limitations of the SUN3D interactive labeling interface, which focuses on object labeling and establishes only region-level correspondences. Reconstructed
+models for one of the scenes are shown in Figure 4.
+DVO
+SLAM
+Kintinuous
+SUN3D
+SfM Ours SUN3D manual
+hotel umd -0.61 -0.45 -0.02 0.66 0.56
+harvard c5 -0.49 -0.01 -0.65 0.94 0.11
+harvard c6 -0.97 0.05 -0.01 0.96 -0.15
+harvard c8 -0.70 -0.61 0.39 0.65 0.46
+mit 32 d507 -0.78 -0.28 -0.02 0.74 0.36
+mit 76 studyroom -0.52 -0.47 0.35 0.50 0.19
+mit dorm next sj -0.26 -0.20 -0.23 0.10 0.65
+mit lab hj -0.12 -0.57 0.03 0.22 0.50
+Average -0.56 -0.32 -0.02 0.60 0.33
+Table 7. Perceptual evaluation on SUN3D scenes. BRE scores
+computed from pairwise comparisons performed on Amazon Mechanical Turk. The presented approach outperforms all other automatic reconstruction pipelines.
+7. Conclusion
+We presented an approach to scene reconstruction from
+RGB-D video. The key idea is to combine geometric registration with global optimization based on line processes.
+The optimization makes the pipeline robust to erroneous geometric alignments, which are unavoidable due to aliasing
+in the input. Experimental results demonstrate that the presented approach significantly improves the fidelity of indoor
+scene models produced from consumer-grade video.
+The presented pipeline is not foolproof. First, if the input
+video does not contain loop closures that indicate global geometric relations, odometry drift can accumulate and distort
+the reconstructed model. Real-time feedback that guides
+the operator to close loops would help. We believe that the
+presented approach can be adapted for real-time operation,
+which would assist the acquisition of complete scene models. Second, our pipeline does not take into account the possibility of catastrophic odometry failure, which would result
+in missing or misshapen fragments. This could be addressed
+by modeling uncertainty not only at the inter-fragment level
+but also in the individual fragment shapes. Integration of
+inertial data would also be useful in challenging scenarios.
+Acknowledgements
+We thank Andreas Geiger for helpful discussions, the authors of the ICL-NUIM and SUN3D datasets for their data
+and relevant discussions, and the authors of Super 4PCS for
+testing their algorithm on our data

@@ -26,3 +26,4 @@ bash count.sh
 
 ![image-20200917144246366](images/image-20200917144246366.png)
 
+> 文本处理python和c++都是垃圾
